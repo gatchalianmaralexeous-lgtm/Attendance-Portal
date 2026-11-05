@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Employee Timesheet</title>
+<style>
+:root{--bg:#f1f1ef;--paper:#fff;--ink:#111;--muted:#555;--line:#111;--field:#fff;--accent:#1a4fa0;--err:#b3261e;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161616;--paper:#222;--ink:#f0f0f0;--muted:#aaa;--line:#ddd;--field:#2c2c2c;--accent:#7fb0ff;--err:#ff8a80}}
+:root[data-theme="dark"]{--bg:#161616;--paper:#222;--ink:#f0f0f0;--muted:#aaa;--line:#ddd;--field:#2c2c2c;--accent:#7fb0ff;--err:#ff8a80}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Arial,Helvetica,sans-serif;padding:16px}
+.sheet{max-width:760px;margin:0 auto;background:var(--paper);padding:28px 28px 32px;border:1px solid var(--line)}
+h1{text-align:center;font-size:24px;margin:0 0 22px}
+.co{font-weight:700;margin:0 0 18px}
+label,.lbl{display:block;font-weight:700;text-decoration:underline;font-size:14px;margin-bottom:3px}
+input{width:100%;font:inherit;font-size:16px;color:var(--ink);background:var(--field);border:2px solid var(--line);padding:7px 8px;border-radius:0}
+input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:18px}
+.pp{display:flex;gap:8px;align-items:center}
+.scroll{overflow-x:auto}
+table{border-collapse:separate;border-spacing:0 8px;width:100%;min-width:600px}
+th{text-align:left;font-size:14px;padding:0 8px 0 0}
+th.c{text-align:center}
+td{padding:0 8px 0 0}
+td.day{font-weight:700;font-size:14px;width:92px}
+td.tot{text-align:right;font-weight:700;font-size:14px;padding-right:12px}
+.num{text-align:center}
+.sig{display:grid;grid-template-columns:1fr 150px;gap:8px 20px;align-items:end;margin-top:26px}
+.sig input.sigtxt{font-family:"Brush Script MT","Segoe Script","Snell Roundhand",cursive;font-size:24px}
+.err{color:var(--err);font-size:13px;margin-top:10px;min-height:18px}
+.actions{margin-top:20px;display:flex;gap:10px;flex-wrap:wrap}
+button{font:inherit;font-weight:700;padding:12px 20px;border:2px solid var(--line);background:var(--accent);color:#fff;cursor:pointer}
+button.sec{background:transparent;color:var(--ink)}
+.note{font-size:13px;color:var(--muted);margin-top:14px;line-height:1.4}
+.ok{color:var(--accent);font-size:14px;margin-top:10px;font-weight:700}
+@media (max-width:560px){.row2,.sig{grid-template-columns:1fr}.sheet{padding:18px}}
+@media print{.actions,.note,.err,.ok{display:none}body{background:#fff;padding:0}}
+</style>
+</head>
+<body>
+<form class="sheet" id="f" onsubmit="return false" autocomplete="off">
+  <h1>Employee Timesheet</h1>
+  <p class="co">AnQor Plumbing &amp; Heating</p>
+
+  <div class="row2">
+    <div><label for="name">Employee Name:</label><input id="name" required></div>
+    <div><span class="lbl">Pay Period:</span>
+      <div class="pp"><input type="date" id="ps" aria-label="Pay period start"><span>/</span><input type="date" id="pe" aria-label="Pay period end"></div>
+    </div>
+  </div>
+  <div class="row2">
+    <div><label for="title">Job Title:</label><input id="title"></div>
+    <div><label for="sup">Supervisor:</label><input id="sup"></div>
+  </div>
+
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Day</th><th>Date</th><th>Job</th><th class="c">Regular Hours</th><th class="c">Overtime Hours</th></tr></thead>
+    <tbody id="rows"></tbody>
+    <tfoot><tr><td colspan="3" class="tot">TOTAL HOURS</td>
+      <td><input id="treg" class="num" readonly aria-label="Total regular hours"></td>
+      <td><input id="tot" class="num" readonly aria-label="Total overtime hours"></td></tr></tfoot>
+  </table>
+  </div>
+
+  <div class="sig">
+    <div><label for="esig">Employee Signature:</label><input id="esig" class="sigtxt" placeholder="Type your full name to sign"></div>
+    <div><label for="edate">Date:</label><input type="date" id="edate"></div>
+    <div><label for="ssig">Supervisor Signature:</label><input id="ssig" class="sigtxt"></div>
+    <div><label for="sdate">Date:</label><input type="date" id="sdate"></div>
+  </div>
+
+  <div class="err" id="err" role="alert"></div>
+  <div class="actions">
+    <button type="button" id="send">Send to Email</button>
+    <button type="button" class="sec" id="clear">Clear</button>
+  </div>
+  <div class="ok" id="ok"></div>
+  <p class="note">Tapping “Send to Email” opens your email app with the timesheet filled in. Review it and press Send there.</p>
+</form>
+
+<script>
+// Set the address that receives timesheets:
+var RECIPIENTS = ["adnerr@anqorplumbing.com","mara@anqorplumbing.com"];
+
+var DAYS=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+var $=function(id){return document.getElementById(id)};
+var tb=$("rows");
+DAYS.forEach(function(d,i){
+  var tr=document.createElement("tr");
+  tr.innerHTML='<td class="day">'+d+'</td>'+
+  '<td><input type="date" data-k="date" aria-label="'+d+' date"></td>'+
+  '<td><input data-k="job" aria-label="'+d+' job"></td>'+
+  '<td><input data-k="reg" class="num" inputmode="decimal" aria-label="'+d+' regular hours"></td>'+
+  '<td><input data-k="ot" class="num" inputmode="decimal" aria-label="'+d+' overtime hours"></td>';
+  tb.appendChild(tr);
+});
+function n(v){var x=parseFloat(String(v).replace(/[^0-9.]/g,""));return isNaN(x)?0:x}
+function fmt(x){return x?String(Math.round(x*100)/100):""}
+function totals(){
+  var r=0,o=0;
+  tb.querySelectorAll("tr").forEach(function(tr){
+    r+=n(tr.querySelector('[data-k="reg"]').value);
+    o+=n(tr.querySelector('[data-k="ot"]').value);
+  });
+  $("treg").value=fmt(r);$("tot").value=fmt(o);
+  return [r,o];
+}
+tb.addEventListener("input",totals);
+var today=new Date();
+$("edate").value=today.getFullYear()+"-"+String(today.getMonth()+1).padStart(2,"0")+"-"+String(today.getDate()).padStart(2,"0");
+
+function md(v){if(!v)return"";var p=v.split("-");return p[1]+"/"+p[2]+"/"+p[0].slice(2)}
+function build(){
+  var t=totals(),L=[];
+  L.push("EMPLOYEE TIMESHEET","AnQor Plumbing & Heating","");
+  L.push("Employee Name: "+$("name").value.trim());
+  L.push("Pay Period: "+md($("ps").value)+" - "+md($("pe").value));
+  L.push("Job Title: "+$("title").value.trim());
+  L.push("Supervisor: "+$("sup").value.trim(),"");
+  L.push("Day | Date | Job | Regular Hrs | Overtime Hrs");
+  tb.querySelectorAll("tr").forEach(function(tr,i){
+    var g=function(k){return tr.querySelector('[data-k="'+k+'"]').value.trim()};
+    L.push(DAYS[i]+" | "+md(g("date"))+" | "+g("job")+" | "+g("reg")+" | "+g("ot"));
+  });
+  L.push("","TOTAL HOURS: Regular "+fmt(t[0])+" | Overtime "+fmt(t[1]),"");
+  L.push("Employee Signature: "+$("esig").value.trim()+"   Date: "+md($("edate").value));
+  L.push("Supervisor Signature: "+$("ssig").value.trim()+"   Date: "+md($("sdate").value));
+  return L.join("\n");
+}
+function check(){
+  var m=[];
+  if(!$("name").value.trim())m.push("Employee name");
+  if(!$("esig").value.trim())m.push("Employee signature");
+  var any=false;
+  tb.querySelectorAll("tr").forEach(function(tr){if(tr.querySelector('[data-k="reg"]').value||tr.querySelector('[data-k="ot"]').value)any=true});
+  if(!any)m.push("hours for at least one day");
+  $("err").textContent=m.length?"Please enter: "+m.join(", ")+".":"";
+  return !m.length;
+}
+$("send").onclick=function(){
+  $("ok").textContent="";
+  if(!check())return;
+  var subj="Timesheet - "+$("name").value.trim()+" - "+md($("ps").value)+" to "+md($("pe").value);
+  var url="mailto:"+RECIPIENTS.map(encodeURIComponent).join(",")+"?subject="+encodeURIComponent(subj)+"&body="+encodeURIComponent(build());
+  window.location.href=url;
+  $("ok").textContent="Your email app should open now. Press Send there to submit.";
+};
+$("clear").onclick=function(){
+  if(!confirm("Clear the whole timesheet?"))return;
+  document.getElementById("f").querySelectorAll("input").forEach(function(i){if(!i.readOnly)i.value=""});
+  totals();$("err").textContent="";$("ok").textContent="";
+};
+totals();
+</script>
+</body>
+</html>
