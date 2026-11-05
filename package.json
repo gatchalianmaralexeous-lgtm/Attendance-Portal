@@ -1,0 +1,7 @@
+{
+  "name": "anqor-timesheet-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Employee timesheet form that emails submissions through Resend (Vercel serverless function).",
+  "engines": { "node": ">=18" }
+}

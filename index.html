@@ -33,6 +33,7 @@ td.tot{text-align:right;font-weight:700;font-size:14px;padding-right:12px}
 .err{color:var(--err);font-size:13px;margin-top:10px;min-height:18px}
 .actions{margin-top:20px;display:flex;gap:10px;flex-wrap:wrap}
 button{font:inherit;font-weight:700;padding:12px 20px;border:2px solid var(--line);background:var(--accent);color:#fff;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}
 button.sec{background:transparent;color:var(--ink)}
 .note{font-size:13px;color:var(--muted);margin-top:14px;line-height:1.4}
 .ok{color:var(--accent);font-size:14px;margin-top:10px;font-weight:700}
@@ -42,6 +43,7 @@ button.sec{background:transparent;color:var(--ink)}
 </head>
 <body>
 <form class="sheet" id="f" onsubmit="return false" autocomplete="off">
+  <input id="website" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
   <h1>Employee Timesheet</h1>
   <p class="co">AnQor Plumbing &amp; Heating</p>
 
@@ -75,19 +77,14 @@ button.sec{background:transparent;color:var(--ink)}
 
   <div class="err" id="err" role="alert"></div>
   <div class="actions">
-    <button type="button" id="send">Send to Email</button>
+    <button type="button" id="send">Submit Timesheet</button>
     <button type="button" class="sec" id="clear">Clear</button>
   </div>
   <div class="ok" id="ok"></div>
-  <div class="actions" id="mailstep" style="display:none"><button type="button" id="openmail">Open Email Draft</button></div>
-  <p class="note">Tapping “Send to Email” saves a PDF of your timesheet. Then open the email draft, attach the PDF and press Send.</p>
+  <p class="note">Tapping “Submit Timesheet” sends your timesheet directly to the office. No email app is needed.</p>
 </form>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
-// Set the address that receives timesheets:
-var RECIPIENTS = ["adnerr@anqorplumbing.com","mara@anqorplumbing.com"];
-
 var DAYS=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 var $=function(id){return document.getElementById(id)};
 var tb=$("rows");
@@ -116,22 +113,20 @@ var today=new Date();
 $("edate").value=today.getFullYear()+"-"+String(today.getMonth()+1).padStart(2,"0")+"-"+String(today.getDate()).padStart(2,"0");
 
 function md(v){if(!v)return"";var p=v.split("-");return p[1]+"/"+p[2]+"/"+p[0].slice(2)}
-function build(){
-  var t=totals(),L=[];
-  L.push("EMPLOYEE TIMESHEET","AnQor Plumbing & Heating","");
-  L.push("Employee Name: "+$("name").value.trim());
-  L.push("Pay Period: "+md($("ps").value)+" - "+md($("pe").value));
-  L.push("Job Title: "+$("title").value.trim());
-  L.push("Supervisor: "+$("sup").value.trim(),"");
-  L.push("DAILY HOURS");
+function payload(){
+  totals();
+  var rows=[];
   tb.querySelectorAll("tr").forEach(function(tr,i){
     var g=function(k){return tr.querySelector('[data-k="'+k+'"]').value.trim()};
-    L.push(DAYS[i]+" "+md(g("date"))+" - "+(g("job")||"-")+" - Regular: "+(g("reg")||"0")+" - Overtime: "+(g("ot")||"0"));
+    rows.push({day:DAYS[i],date:md(g("date")),job:g("job"),reg:g("reg"),ot:g("ot")});
   });
-  L.push("","TOTAL HOURS: Regular "+fmt(t[0])+" | Overtime "+fmt(t[1]),"");
-  L.push("Employee Signature: "+$("esig").value.trim()+"   Date: "+md($("edate").value));
-  L.push("Supervisor Signature: "+$("ssig").value.trim()+"   Date: "+md($("sdate").value));
-  return L.join("\n");
+  return {
+    name:$("name").value.trim(),payStart:md($("ps").value),payEnd:md($("pe").value),
+    title:$("title").value.trim(),supervisor:$("sup").value.trim(),rows:rows,
+    employeeSignature:$("esig").value.trim(),employeeDate:md($("edate").value),
+    supervisorSignature:$("ssig").value.trim(),supervisorDate:md($("sdate").value),
+    website:$("website").value
+  };
 }
 function check(){
   var m=[];
@@ -143,79 +138,21 @@ function check(){
   $("err").textContent=m.length?"Please enter: "+m.join(", ")+".":"";
   return !m.length;
 }
-var fname="";
-function pdfBlob(){
-  var J=window.jspdf&&window.jspdf.jsPDF;
-  if(!J)return null;
-  var d=new J({unit:"mm",format:"letter"});
-  var W=215.9,M=18,y=22;
-  d.setFont("helvetica","bold");d.setFontSize(18);d.text("Employee Timesheet",W/2,y,{align:"center"});
-  y+=10;d.setFontSize(11);d.text("AnQor Plumbing & Heating",M,y);
-  y+=10;
-  function field(label,val,x,w,yy){
-    d.setFont("helvetica","bold");d.setFontSize(10);d.text(label,x,yy);
-    d.setLineWidth(0.4);d.rect(x,yy+1.5,w,8);
-    d.setFont("helvetica","normal");d.setFontSize(11);d.text(String(val||""),x+2,yy+7.2,{maxWidth:w-4});
-  }
-  var half=(W-2*M-10)/2,x2=M+half+10;
-  var pp=($("ps").value||$("pe").value)?md($("ps").value)+" / "+md($("pe").value):"";
-  field("Employee Name:",$("name").value.trim(),M,half,y);
-  field("Pay Period:",pp,x2,half,y);
-  y+=19;
-  field("Job Title:",$("title").value.trim(),M,half,y);
-  field("Supervisor:",$("sup").value.trim(),x2,half,y);
-  y+=22;
-  var cx=[M,M+24,M+54,M+114,M+144],cw=[24,28,58,28,28];
-  d.setFont("helvetica","bold");d.setFontSize(10);
-  ["Day","Date","Job","Regular Hours","Overtime Hours"].forEach(function(h,i){d.text(h,cx[i]+(i>2?cw[i]/2:0),y,i>2?{align:"center"}:undefined)});
-  tb.querySelectorAll("tr").forEach(function(tr,i){
-    y+=11;
-    var g=function(k){return tr.querySelector('[data-k="'+k+'"]').value.trim()};
-    d.setFont("helvetica","bold");d.setFontSize(10);d.text(DAYS[i],cx[0],y+5.5);
-    var vals=[md(g("date")),g("job"),g("reg"),g("ot")];
-    d.setFont("helvetica","normal");d.setFontSize(11);
-    for(var c=1;c<5;c++){
-      d.rect(cx[c],y,cw[c],8);
-      d.text(vals[c-1],c>2?cx[c]+cw[c]/2:cx[c]+2,y+5.6,c>2?{align:"center"}:{maxWidth:cw[c]-4});
-    }
-  });
-  y+=11;
-  d.setFont("helvetica","bold");d.setFontSize(10);d.text("TOTAL HOURS",cx[3]-3,y+5.5,{align:"right"});
-  d.rect(cx[3],y,cw[3],8);d.rect(cx[4],y,cw[4],8);
-  d.setFontSize(11);d.text($("treg").value,cx[3]+cw[3]/2,y+5.6,{align:"center"});d.text($("tot").value,cx[4]+cw[4]/2,y+5.6,{align:"center"});
-  y+=24;
-  var sw=W-2*M-48;
-  function sig(label,val,dt){
-    d.setFont("helvetica","bold");d.setFontSize(10);d.text(label,M,y);d.text("Date:",M+sw+8,y);
-    d.rect(M,y+1.5,sw,11);d.rect(M+sw+8,y+1.5,32,11);
-    d.setFont("times","italic");d.setFontSize(17);d.text(val,M+3,y+9.5,{maxWidth:sw-6});
-    d.setFont("helvetica","normal");d.setFontSize(11);d.text(dt,M+sw+10,y+9);
-    y+=22;
-  }
-  sig("Employee Signature:",$("esig").value.trim(),md($("edate").value));
-  sig("Supervisor Signature:",$("ssig").value.trim(),md($("sdate").value));
-  return d.output("blob");
-}
 $("send").onclick=async function(){
-  $("ok").textContent="";$("mailstep").style.display="none";
+  $("ok").textContent="";
   if(!check())return;
-  fname="Timesheet-"+$("name").value.trim().replace(/[^A-Za-z0-9]+/g,"-")+"-"+($("pe").value||$("edate").value)+".pdf";
-  var blob=pdfBlob(),saved=false;
-  if(blob){
-    try{
-      var dl=window.claude&&await claude.use("downloads");
-      if(dl){await dl.save({filename:fname,data:blob});saved=true}
-    }catch(e){}
+  var btn=$("send");
+  btn.disabled=true;btn.textContent="Submitting\u2026";
+  try{
+    var r=await fetch("/api/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload())});
+    var j={};
+    try{j=await r.json()}catch(e){}
+    if(r.ok&&j.ok){$("ok").textContent="Timesheet submitted successfully. Thank you!"}
+    else{$("err").textContent=j.error||"Submission failed. Please try again."}
+  }catch(e){
+    $("err").textContent="Submission failed. Check your internet connection and try again.";
   }
-  $("ok").textContent=saved
-    ?"PDF saved as "+fname+". Next, open the email draft, attach that PDF and press Send."
-    :"The PDF wasn’t saved. You can still open the email draft; the timesheet details are included in the message.";
-  $("mailstep").style.display="flex";
-};
-$("openmail").onclick=function(){
-  var subj="Timesheet - "+$("name").value.trim()+" - "+md($("ps").value)+" to "+md($("pe").value);
-  var body="Please see the attached PDF timesheet ("+fname+").\n\n"+build();
-  window.location.href="mailto:"+RECIPIENTS.map(encodeURIComponent).join(",")+"?subject="+encodeURIComponent(subj)+"&body="+encodeURIComponent(body);
+  btn.disabled=false;btn.textContent="Submit Timesheet";
 };
 $("clear").onclick=function(){
   if(!confirm("Clear the whole timesheet?"))return;
